@@ -21,7 +21,8 @@ import { resolve } from "node:path";
 
 // ── PRE-REGISTERED CONSTANTS (frozen) ──────────────────────────────────────
 const N_EVENTS = 250;                  // fixed sample = INDEPENDENT events (not trade lines)
-const Z = 1.645;                       // one-sided 95%
+const N_EXTENDED = 500;                // the ONE pre-committed extension if ambiguous at 250
+const Z = 1.645;                       // one-sided 95% (CI lower bound = mean - Z*se)
 const LAG_PREMATCH_USD = 0.03;         // |lag| < 3¢ = pre-match proxy
 const COST = { tipSol: 0.001, baseLamports: 5000, p90Mult: 4, txPerPosition: 1 };
 
@@ -115,7 +116,7 @@ async function main() {
 
   console.log("FORWARD TEST — pre-match SPORT edge (pre-registered, effective-N)");
   console.log("─".repeat(72));
-  console.log(`cohort wallets (walk-forward): ${ledger.entries.length}  |  fixed N: ${N_EVENTS} INDEPENDENT EVENTS  |  bars: t>=${Z} AND mean>cost`);
+  console.log(`cohort wallets (walk-forward, sport-specific): ${ledger.entries.length}  |  fixed N: ${N_EVENTS} INDEPENDENT EVENTS (ext ${N_EXTENDED})  |  verdict: 95% lowerCI vs cost (3-way)`);
   console.log(`qualifying trade-lines: ${qualifying.length}  →  independent events: ${nEvents}` +
     (qualifying.length ? `  (correlation inflation ${(qualifying.length / Math.max(nEvents, 1)).toFixed(1)}x)` : ""));
   if (qualifying.length) {
@@ -127,38 +128,51 @@ async function main() {
   if (nEvents < N_EVENTS) {
     console.log(`PROGRESS: ${nEvents} / ${N_EVENTS} independent events (${(100 * nEvents / N_EVENTS).toFixed(0)}%)`);
     console.log(`  ⏳ NO VERDICT — fixed-N forbids optional stopping. Collect to ${N_EVENTS} events, evaluate once.`);
-    console.log(`  (more wallets ≠ faster; more independent MATCHES = faster.)`);
+    console.log(`  (more wallets ≠ faster; more independent MATCHES = faster. Watch events/week, not the raw counter.)`);
     if (nEvents > 1) { const s = st(eventObs); console.log(`  [running per-event mean (NOT a decision): ${s.mean.toFixed(2)}$/t, t=${s.t.toFixed(2)} — IGNORE until N]`); }
     process.exitCode = 0; return;
   }
 
-  // ── n >= N: evaluate ONCE on per-event observations ──
+  // ── n >= N: evaluate on per-event observations, CI-based 3-way verdict ──
   const sol = await solUsd();
   const costFloor = (COST.tipSol + COST.baseLamports / 1e9) * sol * COST.p90Mult * COST.txPerPosition;
   const S = st(eventObs);
+  const se = S.sd / Math.sqrt(S.n);
+  const lowerCI = S.mean - Z * se;            // one-sided 95% lower bound
   const tennisEvents = [...byEvent.entries()].filter(([k]) => {
     const any = qualifying.find(q => eventKey(q.p.marketId) === k);
     return any && isTennis(any.p.marketTitle || "");
   }).map(([, arr]) => arr.reduce((a, b) => a + b, 0) / arr.length);
   const T = st(tennisEvents);
-  const bar1 = S.t >= Z, bar2 = S.mean > costFloor;
+  const isFinal = nEvents >= N_EXTENDED;
 
-  console.log("EVALUATION (once, at N — per independent event)");
+  console.log(`EVALUATION (per independent event, ${isFinal ? "FINAL at " + N_EXTENDED : "at " + N_EVENTS})`);
   console.log("─".repeat(72));
-  console.log(`  events=${S.n}  mean=${S.mean.toFixed(3)}$/t  sd=${S.sd.toFixed(2)}`);
-  console.log(`  Bar 1  t=${S.t.toFixed(2)} ${bar1 ? ">=" : "<"} ${Z}            → ${bar1 ? "PASS" : "FAIL"}`);
-  console.log(`  Bar 2  mean ${S.mean.toFixed(3)} ${bar2 ? ">" : "<="} cost ${costFloor.toFixed(3)} (SOL $${sol.toFixed(0)}) → ${bar2 ? "PASS" : "FAIL"}`);
+  console.log(`  events=${S.n}  mean=${S.mean.toFixed(3)}$/t  sd=${S.sd.toFixed(2)}  se=${se.toFixed(3)}`);
+  console.log(`  95% lower CI = ${lowerCI.toFixed(3)}   cost floor = ${costFloor.toFixed(3)} (SOL $${sol.toFixed(0)})   zero = 0`);
   console.log(`  [tennis sub-slice (color only): events=${T.n} mean=${T.mean.toFixed(2)} t=${T.t.toFixed(2)}]`);
   console.log("");
-  console.log("VERDICT");
+  console.log("PRE-REGISTERED VERDICT (CI-based, three-way)");
   console.log("─".repeat(72));
-  if (bar1 && bar2) {
-    console.log(`  ✅ PASS — pre-match sport edge survived a clean forward (new trades, walk-forward cohort,`);
-    console.log(`     effective-N events, two bars). → GREEN LIGHT TO SHADOW-EXEC. NOT to capital.`);
+  if (lowerCI > costFloor) {
+    console.log(`  ✅ PASS — 95% CI lower bound (${lowerCI.toFixed(3)}) is ABOVE the cost floor (${costFloor.toFixed(3)}).`);
+    console.log(`     → GREEN LIGHT TO SHADOW-EXEC. NOT to capital (paper keeps the haircut one more stage).`);
     process.exitCode = 0;
-  } else {
-    console.log(`  ❌ FAIL — pre-match edge was an in-sample mirage (${!bar1 ? "not significant on independent events" : "below cost"}). Stop.`);
+  } else if (lowerCI <= 0) {
+    console.log(`  ❌ KILL — 95% CI includes zero (lower=${lowerCI.toFixed(3)}). Edge indistinguishable from luck. Stop.`);
     process.exitCode = 1;
+  } else {
+    // 0 < lowerCI <= costFloor : significant vs zero but not clearly above cost
+    if (!isFinal) {
+      console.log(`  ⚠️ AMBIGUOUS at ${N_EVENTS} — CI excludes zero (lower=${lowerCI.toFixed(3)}) but is NOT above cost (${costFloor.toFixed(3)}).`);
+      console.log(`     → ONE pre-committed extension to ${N_EXTENDED} events. Collect ${N_EXTENDED - nEvents} more, re-evaluate ONCE, then stop regardless.`);
+      console.log(`     (This is the ONLY allowed extension. No further N changes — that would be optional stopping.)`);
+      process.exitCode = 0;
+    } else {
+      console.log(`  ❌ KILL (final, at ${N_EXTENDED}) — still not clearly above cost (lower=${lowerCI.toFixed(3)} ≤ ${costFloor.toFixed(3)}).`);
+      console.log(`     Significant-but-below-cost = significant-and-useless. No further extension. Stop.`);
+      process.exitCode = 1;
+    }
   }
 }
 

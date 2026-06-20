@@ -54,15 +54,15 @@ fork.
 
 | Rule | Value |
 |------|-------|
-| **Walk-forward cohort** | `analysis/forward-cohort.json` (built by `cohort-update.ts`). Each wallet enters when it first satisfies the frozen rule (verified && predictions≥50) and is stamped `enteredMs`; that stamp is NEVER re-dated. A trade counts only if `openedAt > wallet.enteredMs`. This lets us WIDEN the observed set without any qualifying-record leaking into its own test window. The 194 baseline positions (openedAt ≤ Jun 19) are all excluded. |
+| **Walk-forward cohort** | `analysis/forward-cohort.json` (built by `cohort-update.ts`). Each wallet enters when it first satisfies the frozen **sport-specific** rule and is stamped `enteredMs`; that stamp is NEVER re-dated. A trade counts only if `openedAt > wallet.enteredMs`. Widens the observed set without any qualifying-record leaking into its own test window. The 194 baseline positions (openedAt ≤ Jun 19) are all excluded. |
+| **Cohort qualification (SPORT-SPECIFIC, locked)** | `verified` (global skill floor) AND `observed sport trades ≥ 10` AND `sport share ≥ 0.5`. **Why not global preds≥50:** that let crypto-5m wallets in (measured: 4bxYGT 2% sport, 8ueAQR 0% sport, GJnNNb 7%) — copying them on sport = skill-non-transfer. The sport gate ensures earned skill is in the copied domain. Locked at 0/250; the original 9 were re-dated when the rule changed. |
 | **Sample unit** | **independent (match) EVENTS** — correlated copies on the same match collapse to one observation (per-event mean $/trade). |
 | **N (fixed)** | **250 independent events.** Pre-committed (budgets the post-fork edge regression). |
 | **Optional stopping** | **FORBIDDEN.** No peeking-and-declaring. The evaluator emits NO verdict until events ≥ 250, then evaluates **ONCE**. |
-| **Bar 1 (significance)** | `t ≥ 1.645` (one-sided 95%) on the **per-event** series |
-| **Bar 2 (economics)** | `mean $/trade > real cost floor` (Solana p90 priority fee, ~$0.29). A barely-significant edge smaller than fees is significant-and-useless. |
+| **Verdict (CI-based, three-way, locked)** | Compute the one-sided 95% lower CI = `mean − 1.645·se` on the per-event series. **(a)** lowerCI > cost floor → **PASS → shadow-exec**. **(b)** lowerCI ≤ 0 (CI includes zero) → **KILL**. **(c)** 0 < lowerCI ≤ cost floor (significant vs zero but not clearly above cost) → **ONE pre-committed extension to N=500 events**, re-evaluate ONCE, then PASS/KILL with no further extension. This kills "I'll extend to 500 because it was almost good" optional-stopping by deciding the ambiguous case in advance. |
 | **Lag-distribution guard** | The forward set's lag p90 must stay < 3¢. If widening into thin-liquidity markets drifts lag right, the "clean" set is being contaminated with in-play-like trades — the exact thing that killed in-play tennis. The evaluator reports it. |
-| **PASS = both bars** | → green light to **SHADOW-EXEC**, *not* real money. Paper keeps the adverse-selection + priority-fee haircut one more stage before capital. |
-| **FAIL = either bar** | → the pre-match edge was an in-sample mirage. Stop. |
+| **Cost floor** | Solana p90 priority fee (~$0.29). A significant-but-below-cost edge is significant-and-useless. |
+| **PASS** | → green light to **SHADOW-EXEC**, *not* real money. Paper keeps the adverse-selection + priority-fee haircut one more stage before capital. |
 
 ## Widening observation correctly (the accelerator, without corrupting the test)
 
@@ -85,6 +85,27 @@ not tennis-only. Rules for the widening:
 5. **Monitor realized lag.** Thin markets → higher effective lag → silent drift
    into the in-play-toxic regime even on "pre-match". `MAX_COPY_LAG_USD` stays
    enforced; the lag-distribution guard catches drift.
+6. **Optimise for independent-event DIVERSITY, not wallet count.** 50 wallets all
+   trading the same ATP main-tour matches pile onto the same Alcaraz/Sinner →
+   inflation ratio explodes, effective N barely moves. What grows independent
+   events fast is COVERAGE: different tournaments (challengers), different sports
+   (football, NBA, MLB, NHL, pre-match esport), different time zones. Each sport
+   calendar is a parallel stream of independent events. Widen sport-WIDE; tennis
+   stays the reported sub-slice. This is also the principled hypothesis (low lag
+   in pre-match, not "tennis").
+
+## Run-time discipline (non-negotiable)
+
+- **Famine never loosens the rule.** 0 copies/3h is a reason for MORE observation,
+  never a looser filter. Touching `lag<3¢` or the price band "to get volume"
+  corrupts the 250. The copy rule is frozen, period.
+- **Expect a softer edge than +$1.80 (and that's good).** The cron onboards a
+  wallet right after it crosses the threshold — often just after a hot streak, at
+  its local peak → it regresses. If the edge survives this peak-biased intake, it
+  is *more* real, not less.
+- **Flow is lumpy.** Grand Slams = a burst of highly-correlated tennis events
+  (inflation ratio rises); off-season = drought. Watch **independent events per
+  week**, not the raw line counter — that is the true ETA signal.
 
 ## The operational unlock (or this takes months)
 

@@ -1,109 +1,48 @@
 {
- "frozenAtMs": 1781960581708,
- "rule": "verified && predictions>=50 (qualifies on data available at entry)",
- "n": 9,
- "cohort": [
-  {
-   "pubkey": "BEmpBZUSFGzaW4ZPphRNJ7faUzoKuACMz9yEpwN46oUf",
-   "preds": 85,
-   "wr": 74
-  },
-  {
-   "pubkey": "5ZVuxVocK7dSty7DfQFFqmUxZGPc3eX7mkYyVDHZhrA3",
-   "preds": 113,
-   "wr": 56
-  },
-  {
-   "pubkey": "1koh3PBEAb2WDk8ED4yV4GayLuEgBozxVpcJaQBvGv1",
-   "preds": 104,
-   "wr": 58
-  },
-  {
-   "pubkey": "4bxYGTbzfuh6Nt5ecbx79XmoAXh6CAD5jXChaHPCEm66",
-   "preds": 251,
-   "wr": 73
-  },
-  {
-   "pubkey": "ERQmsSQAkLFwuvMU2K73BUs4ZP5DQmBoFaY4UjV7d9Rg",
-   "preds": 140,
-   "wr": 57
-  },
-  {
-   "pubkey": "GJnNNbBqERMhaysrjN1vWbBJhSRq8CwSU7nQdJV73ZxQ",
-   "preds": 58,
-   "wr": 74
-  },
-  {
-   "pubkey": "FEzExDFZPy1GDhYi257EZp8arkvN4hGvV9zbPRa3Txph",
-   "preds": 87,
-   "wr": 69
-  },
-  {
-   "pubkey": "5jXZRgm1HYKnsubuxzXstETt8W4kJEaY4SHetbXypKVe",
-   "preds": 191,
-   "wr": 79
-  },
-  {
-   "pubkey": "8ueAQRiLExT7M9CNSkR11FDGbx2UyJqpSxCp1y43PWWs",
-   "preds": 56,
-   "wr": 64
-  }
- ],
+ "rule": "verified && sportObs>=10 && sportShare>=0.5 (sport-specific; qualifies on data at entry)",
+ "updatedMs": 1781961290794,
  "entries": [
   {
    "pubkey": "BEmpBZUSFGzaW4ZPphRNJ7faUzoKuACMz9yEpwN46oUf",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 85,
-   "wrAtEntry": 74
-  },
-  {
-   "pubkey": "5ZVuxVocK7dSty7DfQFFqmUxZGPc3eX7mkYyVDHZhrA3",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 113,
-   "wrAtEntry": 56
+   "enteredMs": 1781961290794,
+   "sportObs": 23,
+   "sportShare": 1
   },
   {
    "pubkey": "1koh3PBEAb2WDk8ED4yV4GayLuEgBozxVpcJaQBvGv1",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 104,
-   "wrAtEntry": 58
+   "enteredMs": 1781961290794,
+   "sportObs": 222,
+   "sportShare": 0.98
   },
   {
-   "pubkey": "4bxYGTbzfuh6Nt5ecbx79XmoAXh6CAD5jXChaHPCEm66",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 251,
-   "wrAtEntry": 73
+   "pubkey": "3NuZ9Ntii5oyJUNiKoQKoCcYe46PJH5o2dMN4tNo4kGb",
+   "enteredMs": 1781961290794,
+   "sportObs": 21,
+   "sportShare": 1
   },
   {
    "pubkey": "ERQmsSQAkLFwuvMU2K73BUs4ZP5DQmBoFaY4UjV7d9Rg",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 140,
-   "wrAtEntry": 57
-  },
-  {
-   "pubkey": "GJnNNbBqERMhaysrjN1vWbBJhSRq8CwSU7nQdJV73ZxQ",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 58,
-   "wrAtEntry": 74
+   "enteredMs": 1781961290794,
+   "sportObs": 15,
+   "sportShare": 1
   },
   {
    "pubkey": "FEzExDFZPy1GDhYi257EZp8arkvN4hGvV9zbPRa3Txph",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 87,
-   "wrAtEntry": 69
+   "enteredMs": 1781961290794,
+   "sportObs": 30,
+   "sportShare": 1
   },
   {
    "pubkey": "5jXZRgm1HYKnsubuxzXstETt8W4kJEaY4SHetbXypKVe",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 191,
-   "wrAtEntry": 79
+   "enteredMs": 1781961290794,
+   "sportObs": 20,
+   "sportShare": 1
   },
   {
-   "pubkey": "8ueAQRiLExT7M9CNSkR11FDGbx2UyJqpSxCp1y43PWWs",
-   "enteredMs": 1781960798403,
-   "predsAtEntry": 56,
-   "wrAtEntry": 64
+   "pubkey": "BiK1WCFE9a8eX3eEJRCTw5QVpofK69hXdBwKMV4ANKdi",
+   "enteredMs": 1781961290794,
+   "sportObs": 11,
+   "sportShare": 1
   }
- ],
- "updatedMs": 1781960798403
+ ]
 }
