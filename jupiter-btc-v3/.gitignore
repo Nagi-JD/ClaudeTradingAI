@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+# keep dir structure but ignore captured data
+data/**/*.jsonl
+data/**/*.csv
+!data/**/.gitkeep

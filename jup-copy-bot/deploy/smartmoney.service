@@ -1,0 +1,17 @@
+[Unit]
+Description=Jupiter Smart-Money Paper Copy-Trader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/jup-copy-bot
+# npm path may differ; use `command -v npm` on the host. Logs append to bot.log.
+ExecStart=/bin/bash -lc "/usr/bin/npm start >> /root/jup-copy-bot/bot.log 2>&1"
+Restart=always
+RestartSec=10
+User=root
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

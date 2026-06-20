@@ -1,0 +1,91 @@
+# Jupiter Prediction V3 — research-first config.
+# Safety flags here are OVERRIDDEN by env (READ_ONLY / DRY_RUN / ENABLE_LIVE_TRADING).
+readOnly: true
+dryRun: true
+enableLiveTrading: false
+
+jupiter:
+  baseUrl: "https://api.jup.ag/prediction/v1"
+  providerDefault: "polymarket"
+  category: "crypto"
+  includeMarkets: true
+  requestTimeoutMs: 3000
+  maxRetries: 6
+
+refresh:
+  marketMs: 1000
+  orderbookMs: 1000
+  settlementIndexMs: 500
+  btcContextMs: 500
+
+settlement:
+  minRuleConfidence: 0.85
+  requireExactSettlementIndex: true
+  blockIfIndexUnknown: true
+  blockIfRuleUnclear: true
+
+basis:
+  maxBasisBps: 5
+  maxBasisVolBps: 3
+  blockOnDivergence: true
+  blockIfSettlementIndexStale: true
+
+vol:
+  ewmaLambda: 0.94
+  minSamples: 30
+  jumpZThreshold: 4.0
+  jumpRegimeMultiplier: 1.5
+  lowConfidencePenalty: 0.5
+
+binaryPricing:
+  minExpectedMoveUsd: 1
+  clampMin: 0.01
+  clampMax: 0.99
+
+dangerZone:
+  expectedMoveMultiplier: 0.4
+
+tilts:
+  enabled: false
+  cvdAdjustmentMax: 0.02
+  liquidationAdjustmentMax: 0.02
+  momentumAdjustmentMax: 0.015
+  disableIfNoOutOfSampleImprovement: true
+
+costs:
+  neverFillAtMid: true
+  baseSlippage: 0.015
+  marketOrderSlippageMultiplier: 1.5
+  latencyPenaltyMultiplier: 1.0
+  failedFillPenalty: 0.01
+
+orderbook:
+  maxWalkSlippage: 0.025
+  minFillRatio: 0.8
+  neverFillAtMid: true
+
+latency:
+  maxAbsoluteMs: 1500
+  maxFractionOfTimeLeft: 0.08
+  blockUnderSecondsLeft: 20
+  useP95: true
+
+risk:
+  minTimeLeftSeconds: 20
+  maxTimeLeftSeconds: 180
+  minEdgeNet: 0.07
+  minConfidence: 0.60
+  maxSpread: 0.08
+  maxDataAgeMs: 1500
+  maxPositionUsd: 10
+  maxDailyLossUsd: 25
+
+correlation:
+  maxCorrelatedExposureUsd: 25
+  overlapWindowSeconds: 300
+
+calibration:
+  enableAblation: true
+  minOutOfSampleTrades: 200
+  disableTiltIfNoImprovement: true
+  brierBuckets: 10
