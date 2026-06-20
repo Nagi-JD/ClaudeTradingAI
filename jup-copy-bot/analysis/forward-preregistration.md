@@ -22,9 +22,21 @@ must validate on its own.
 
 The +$1.80 is the MAXIMUM of a search: clean → sport → tennis → pre-match (best
 branch at every fork). Forking inflates the *edge*, not just the t, which
-deflates the trades-needed. At sd ≈ $9.9: +$1.80 → ~83 trades; but if the edge
-regresses to a realistic +$1.00 → ~265; +$0.90 → ~330. **We budget N = 300, not
-83.** Be pleasantly surprised if it converges sooner — but the rule is N=300.
+deflates the N-needed. At sd ≈ $9.9: +$1.80 → ~83; if the edge regresses to a
+realistic +$1.00 → ~265; +$0.90 → ~330. **We budget for the regressed edge, not
+the peak.**
+
+## The correlation trap (why N is counted in EVENTS, not trade-lines)
+
+**300 trade-lines ≠ 300 independent samples.** If 20 watched wallets pile into
+one Alcaraz match, that is ONE bet on ONE outcome — it counts ~1 toward the
+t-stat, not 20. Widening the wallet set inflates the trade COUNT far faster than
+the number of independent EVENTS, and only independent events drive
+significance. So the test counts **N in unique (match) events**: all our copies
+on the same match collapse to a single per-event observation (mean $/trade), and
+the t-stat runs on those. The gate is **independent events**, not lines —
+otherwise t≥1.645 is a correlation artifact. The evaluator reports the inflation
+ratio (lines ÷ events) so we see it.
 
 ## THE PRE-REGISTERED HYPOTHESIS (principled, not forked)
 
@@ -42,14 +54,37 @@ fork.
 
 | Rule | Value |
 |------|-------|
-| **Cutoff** | `openedAt > 1781960030776` (2026-06-20T11:33:50Z). The 194 baseline positions are EXCLUDED. Only NEW trades count — the baseline generated the hypothesis; including it is circular. |
-| **Sample** | pre-match sport closed copies opened after the cutoff |
-| **N (fixed)** | **300** new qualifying trades. Pre-committed. |
-| **Optional stopping** | **FORBIDDEN.** No peeking-and-declaring. The evaluator emits NO verdict until n ≥ 300, then evaluates **ONCE**. |
-| **Bar 1 (significance)** | `t ≥ 1.645` (one-sided 95%) on the new sample |
+| **Walk-forward cohort** | `analysis/forward-cohort.json` (built by `cohort-update.ts`). Each wallet enters when it first satisfies the frozen rule (verified && predictions≥50) and is stamped `enteredMs`; that stamp is NEVER re-dated. A trade counts only if `openedAt > wallet.enteredMs`. This lets us WIDEN the observed set without any qualifying-record leaking into its own test window. The 194 baseline positions (openedAt ≤ Jun 19) are all excluded. |
+| **Sample unit** | **independent (match) EVENTS** — correlated copies on the same match collapse to one observation (per-event mean $/trade). |
+| **N (fixed)** | **250 independent events.** Pre-committed (budgets the post-fork edge regression). |
+| **Optional stopping** | **FORBIDDEN.** No peeking-and-declaring. The evaluator emits NO verdict until events ≥ 250, then evaluates **ONCE**. |
+| **Bar 1 (significance)** | `t ≥ 1.645` (one-sided 95%) on the **per-event** series |
 | **Bar 2 (economics)** | `mean $/trade > real cost floor` (Solana p90 priority fee, ~$0.29). A barely-significant edge smaller than fees is significant-and-useless. |
+| **Lag-distribution guard** | The forward set's lag p90 must stay < 3¢. If widening into thin-liquidity markets drifts lag right, the "clean" set is being contaminated with in-play-like trades — the exact thing that killed in-play tennis. The evaluator reports it. |
 | **PASS = both bars** | → green light to **SHADOW-EXEC**, *not* real money. Paper keeps the adverse-selection + priority-fee haircut one more stage before capital. |
 | **FAIL = either bar** | → the pre-match edge was an in-sample mirage. Stop. |
+
+## Widening observation correctly (the accelerator, without corrupting the test)
+
+The speed lever is **more independent matches**, not more wallets (correlated
+copies don't add events). Test pre-match SPORT *broadly* (more sports/matches),
+not tennis-only. Rules for the widening:
+
+1. **Widen observation, freeze the decision.** Add as many wallets/markets to
+   *observe* as you like; the copy rule (pre-match, lag<3¢, verified,
+   MIN_COPY_PREDS, price band) stays exactly as pre-registered. Instrumentation
+   yes, behavior no.
+2. **Mechanical onboarding, no hand-picking.** Wallets enter via `cohort-update.ts`
+   (frozen rule), never by intuition — hand-picking "good tennis wallets" is
+   forking at the wallet level and re-introduces leaderboard survivorship.
+3. **Hard temporal frontier** — enforced by per-wallet `enteredMs` (above).
+4. **Helius WS to detect, REST only at the decision.** Pre-match has slack; do
+   NOT re-saturate RPS polling the whole market universe. WS on watched wallets
+   detects entries; fetch the orderbook only for the market a watched wallet
+   just opened. That is how the freed 5-min budget is spent without re-burning it.
+5. **Monitor realized lag.** Thin markets → higher effective lag → silent drift
+   into the in-play-toxic regime even on "pre-match". `MAX_COPY_LAG_USD` stays
+   enforced; the lag-distribution guard catches drift.
 
 ## The operational unlock (or this takes months)
 
