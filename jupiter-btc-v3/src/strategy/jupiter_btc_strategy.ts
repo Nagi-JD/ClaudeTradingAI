@@ -352,6 +352,12 @@ export class JupiterBtcStrategy {
             distanceToStrikeBps: distanceBps,
             nearStrikeBandBps: bandBps,
             nearStrikeAbstain: nearStrike,
+            // for the OFFLINE 15-min-first gate (don't rely on the band alone to
+            // exclude 5-min — band ≈ 5-min move, so 5-min close-calls would leak)
+            windowDurationMin: (() => {
+              const d = JupiterBtcStrategy.windowDurationMs(market?.eventTitle ?? "");
+              return d != null ? Math.round(d / 60000) : null;
+            })(),
           },
         },
       };

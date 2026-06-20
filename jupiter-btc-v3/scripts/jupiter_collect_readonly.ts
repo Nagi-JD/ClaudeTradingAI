@@ -18,6 +18,8 @@ import {
   startProxyPollers,
   getLatestConsensus,
 } from "../src/pricing/proxy_index";
+import { fetchChainlinkBtcUsd } from "../src/pricing/chainlink_feed";
+import { mkdirSync, appendFileSync } from "node:fs";
 import type { StrategyDecision } from "../src/jupiter_prediction/models";
 
 // ───────────────────────────────────────────────────────── tiny ANSI utils ──
@@ -107,11 +109,44 @@ async function main(): Promise<void> {
     startProxyPollers();
     console.log(
       paint(
-        "  PROXY INDEX: ON — Pyth BTC/USD (low-confidence research proxy) + Binance basis leg.",
+        "  PROXY INDEX: ON — multi-source USD consensus (Pyth/Coinbase/Kraken median; Binance=USDT monitor).",
         C.yellow,
         C.bold,
       ),
     );
+    // PASSIVE calibration meter: log the on-chain Chainlink Data Feed next to the
+    // consensus on an interval — NO analysis, just accumulate samples (with age,
+    // so a later bias calc can filter to calm+fresh). Started now so samples pile
+    // up during warm+collect; the bias/cushion-shrink pipeline is built LATER and
+    // ONLY if the 15-min read shows an edge worth chasing into the 5-min.
+    try {
+      mkdirSync("data/jupiter_calibration", { recursive: true });
+      const calMs = Math.max(10000, Number(process.env.CHAINLINK_LOG_MS ?? 20000));
+      const calTimer = setInterval(() => {
+        void (async () => {
+          try {
+            const cl = await fetchChainlinkBtcUsd();
+            const c = getLatestConsensus();
+            if (!cl || !c) return;
+            appendFileSync(
+              "data/jupiter_calibration/chainlink.jsonl",
+              JSON.stringify({
+                tMs: Date.now(),
+                consensusMedian: c.median,
+                dispersionBps: c.dispersionBps,
+                nSources: c.nSources,
+                chainlinkPrice: cl.price,
+                chainlinkUpdatedAtMs: cl.updatedAtMs,
+                chainlinkAgeMs: cl.ageMs,
+                driftBps: ((c.median - cl.price) / cl.price) * 10000,
+              }) + "\n",
+            );
+          } catch { /* never let calibration logging affect the run */ }
+        })();
+      }, calMs);
+      if (typeof (calTimer as { unref?: () => void }).unref === "function") (calTimer as { unref: () => void }).unref();
+      console.log(paint(`  CHAINLINK CALIBRATION METER: ON — logging feed↔consensus every ${calMs}ms (passive, no analysis).`, C.dim));
+    } catch { /* ignore */ }
     console.log(
       paint(
         "  NOTE: proxy is NOT settlement-grade. Verdicts stay low-confidence; this measures edge/basis only.",
