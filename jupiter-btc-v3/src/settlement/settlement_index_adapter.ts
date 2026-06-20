@@ -25,7 +25,7 @@ import type {
   VenueProvider,
 } from "../jupiter_prediction/models";
 import { blockedIndexSnapshot } from "../jupiter_prediction/models";
-import { getLatestPyth } from "../pricing/proxy_index";
+import { getLatestConsensus } from "../pricing/proxy_index";
 
 export interface FetchSettlementIndexOpts {
   allowCexResearchFallback: boolean;
@@ -181,31 +181,49 @@ function pythProxyIndex(
   spec: SettlementSpec,
   proxyMaxAgeMs: number | undefined,
 ): SettlementIndexSnapshot | null {
-  const q = getLatestPyth();
-  if (!q || !(q.price > 0)) return null;
-  // Staleness is measured on OUR observation time, not Pyth's publish time.
-  const ageMs = Date.now() - q.tMs;
-  const maxAge = Number.isFinite(proxyMaxAgeMs as number)
-    ? (proxyMaxAgeMs as number)
-    : 10000;
+  const c = getLatestConsensus();
+  if (!c || !(c.median > 0) || c.nSources < 2) return null;
+  // Staleness on OUR observation time.
+  const ageMs = Date.now() - c.tMs;
+  const maxAge = Number.isFinite(proxyMaxAgeMs as number) ? (proxyMaxAgeMs as number) : 10000;
   if (ageMs > maxAge) return null;
+
+  // Confidence from MEASURED inter-source agreement (uncertainty #1 ONLY).
+  // Tight agreement lets us leave the 0.3 floor — it proves our MEASUREMENT is
+  // good. It does NOT prove we match the Chainlink Data Stream at the settlement
+  // tick (uncertainty #2) — that residual is UNMEASURED here and dominates near
+  // the strike, so the strategy further caps confidence by distance-to-strike.
+  // Hence the hard ceiling well below 1.
+  // High dispersion is NOT "less confidence" — it is "abstain": when the USD
+  // venues disagree, the consensus is not a trustworthy measurement, so above
+  // ~5-6 bps we hard-block (confidence 0 → SETTLEMENT_INDEX_UNAVAILABLE).
+  const disp = c.dispersionBps;
+  let confidence: number;
+  if (disp <= 2) confidence = 0.70;
+  else if (disp <= 5) confidence = 0.55;
+  else confidence = 0; // > ~5-6 bps disagreement → abstain, untrustworthy consensus
+  if (c.nSources < 3 && confidence > 0) confidence = Math.min(confidence, 0.40); // 2 sources = weaker cross-check
+
   const trueSrc = spec.settlementIndexName ?? "UNKNOWN_SETTLEMENT_SOURCE";
   return {
     provider: spec.provider,
     marketId: spec.marketId,
-    indexName: `${trueSrc} (PYTH_PROXY)`,
-    indexPrice: q.price,
-    timestamp: new Date(q.tMs).toISOString(),
+    indexName: `${trueSrc} (USD_CONSENSUS_PROXY)`,
+    indexPrice: c.median,
+    timestamp: new Date(c.tMs).toISOString(),
     dataAgeMs: Math.max(0, ageMs),
-    confidence: PROXY_INDEX_CONFIDENCE,
+    confidence,
     rawPayload: {
-      source: "PYTH_PROXY",
+      source: "USD_CONSENSUS_PROXY",
       note:
-        "Research proxy for the true settlement source — NOT settlement-grade. " +
-        "Pyth BTC/USD via Hermes, low confidence.",
+        "Median of USD CEX sources (reproduces Chainlink's aggregate METHODOLOGY, " +
+        "not the Data Stream value at the settlement tick). Confidence reflects " +
+        "inter-source agreement only; residual-to-Chainlink is unmeasured here.",
       trueSettlementSource: trueSrc,
-      pythConfUsd: q.confUsd,
-      pythPublishMs: q.publishMs,
+      usdSources: c.nSources,
+      dispersionBps: c.dispersionBps,
+      offsetsBps: c.offsetsBps,
+      usdtBasisBps: c.usdtBasisBps,
     },
   };
 }

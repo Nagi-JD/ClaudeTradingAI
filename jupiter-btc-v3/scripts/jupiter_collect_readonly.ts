@@ -16,8 +16,7 @@ import { SnapshotLogger } from "../src/logging/snapshot_logger";
 import { DecisionLogger } from "../src/logging/decision_logger";
 import {
   startProxyPollers,
-  getLatestPyth,
-  getLatestBinance,
+  getLatestConsensus,
 } from "../src/pricing/proxy_index";
 import type { StrategyDecision } from "../src/jupiter_prediction/models";
 
@@ -193,22 +192,18 @@ async function main(): Promise<void> {
           (lb > 0 ? ` | LIVE_BLOCKED ${paint(String(lb), C.yellow)}` : "") +
           paint(` | ${Date.now() - t0}ms`, C.dim),
       );
-      // Research verdict line (proxy mode): priced count, best edge, basis, conf.
+      // Research verdict line (proxy mode): priced count, best edge, conf, and the
+      // multi-source consensus (USD median, measured USD dispersion, USDT basis).
       if (loaded.flags.allowProxyIndex) {
-        const py = getLatestPyth();
-        const bn = getLatestBinance();
-        const pyVal = py ? `$${py.price.toFixed(0)}` : "—";
-        const bnVal = bn ? `$${bn.price.toFixed(0)}` : "—";
-        const pbBps =
-          py && bn && bn.price > 0
-            ? (((py.price - bn.price) / bn.price) * 10000).toFixed(1)
-            : "—";
-        const avgBasis = basisN > 0 ? (basisSum / basisN).toFixed(1) : "—";
+        const c = getLatestConsensus();
+        const medVal = c ? `$${c.median.toFixed(0)}` : "—";
+        const dispVal = c ? `${c.dispersionBps.toFixed(1)}bps/${c.nSources}src` : "—";
+        const usdtVal = c && c.usdtBasisBps != null ? `${c.usdtBasisBps.toFixed(1)}bps` : "—";
         const avgConf = confN > 0 ? (confSum / confN).toFixed(2) : "—";
         console.log(
           paint(
             `      ↳ priced ${priced}/${decisions.length} | bestEdge ${(bestEdge * 100).toFixed(1)}¢ | ` +
-              `avgConf ${avgConf} | avgBasis ${avgBasis}bps | Pyth ${pyVal} Bnce ${bnVal} (Δ${pbBps}bps)`,
+              `avgConf ${avgConf} | USDmed ${medVal} disp ${dispVal} | USDTbasis ${usdtVal}`,
             C.dim,
           ),
         );

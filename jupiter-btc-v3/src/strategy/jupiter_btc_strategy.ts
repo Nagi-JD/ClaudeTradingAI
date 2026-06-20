@@ -55,7 +55,7 @@ import { computeFairValue } from "../pricing/fair_value_engine";
 import { fetchBtcContext } from "../features/btc_context_adapter";
 import {
   getProxyTicks,
-  getLatestBinance,
+  getLatestConsensus,
   getProxyPriceAt,
 } from "../pricing/proxy_index";
 import { LatencyEngine } from "../risk/measured_latency_engine";
@@ -106,6 +106,15 @@ export class JupiterBtcStrategy {
   private static readonly ANCHOR_TOLERANCE_MS = Number(
     process.env.PROXY_ANCHOR_TOLERANCE_MS ?? 120000,
   );
+
+  // Near-strike band (bps, PRICE space). band = max(k·dispersion_now, p99 floor)
+  // + bias cushion. Biased WIDE on purpose: skipping a marginal trade is cheap;
+  // taking a close-call the proxy mismeasures fabricates a false edge that
+  // corrupts the whole verdict. Cushion covers the systematic consensus↔Chainlink
+  // bias that dispersion cannot see (shrinks once on-chain calibration lands).
+  private static readonly NEARSTRIKE_K = Number(process.env.NEARSTRIKE_K ?? 3);
+  private static readonly NEARSTRIKE_P99_FLOOR_BPS = Number(process.env.NEARSTRIKE_P99_FLOOR_BPS ?? 8);
+  private static readonly NEARSTRIKE_BIAS_BPS = Number(process.env.NEARSTRIKE_BIAS_BPS ?? 5);
 
   /**
    * Derive the window length (ms) from the two clock times in an event title,
@@ -172,20 +181,25 @@ export class JupiterBtcStrategy {
       ? (btcContext.btcCexPriceNow as number)
       : null;
 
-    // Proxy mode: when no primary CEX reference is wired (no MoonDev key), use
-    // the free Binance spot as the INDEPENDENT basis cross-check leg. This lets
-    // the basis monitor actually measure the proxy↔independent gap.
+    // Proxy mode: feed the basis monitor an INDEPENDENT USD venue (NOT Binance —
+    // it's BTC/USDT, ~+11bps rich, which would fire a FALSE BASIS_UNSTABLE on the
+    // USDT basis, not real decoupling). Using a USD source (Coinbase/Kraken) makes
+    // the basis re-measure USD inter-source agreement: tight when venues agree,
+    // widening only on genuine decoupling.
     if (flags?.allowProxyIndex === true && btcContextPrice === null) {
-      const bin = getLatestBinance();
-      if (bin && isFiniteNumber(bin.price) && bin.price > 0) {
-        btcContextPrice = bin.price;
+      const cons = getLatestConsensus();
+      const usdRef = cons?.sources.find((s) => s.unit === "USD" && s.source !== "PYTH")
+        ?? cons?.sources.find((s) => s.unit === "USD");
+      if (usdRef && isFiniteNumber(usdRef.price) && usdRef.price > 0) {
+        btcContextPrice = usdRef.price;
         btcContext = {
           ...btcContext,
-          btcCexPriceNow: bin.price,
-          dataAgeMs: Math.max(0, Date.now() - bin.tMs),
+          btcCexPriceNow: usdRef.price,
+          dataAgeMs: Math.max(0, Date.now() - usdRef.tMs),
           rawSources: {
             ...(btcContext.rawSources as Record<string, unknown>),
-            basisCrossCheck: bin.source,
+            basisCrossCheck: usdRef.source,
+            usdtBasisBps: cons?.usdtBasisBps,
             secondaryOnly: true,
           },
         };
@@ -230,12 +244,12 @@ export class JupiterBtcStrategy {
       : 0;
 
     // ── proxy mode: window-open anchor target + low-confidence fold ────────
+    const proxySrc = (settlementIndex?.rawPayload as { source?: string } | undefined)?.source;
     const indexIsProxy =
       flags?.allowProxyIndex === true &&
       isFiniteNumber(settlementIndex?.indexPrice) &&
       (settlementIndex.indexPrice as number) > 0 &&
-      (settlementIndex?.rawPayload as { source?: string } | undefined)
-        ?.source === "PYTH_PROXY";
+      (proxySrc === "USD_CONSENSUS_PROXY" || proxySrc === "PYTH_PROXY");
 
     if (indexIsProxy) {
       // (a) Anchor the UP_DOWN target on the proxy price AT THE WINDOW OPEN when
@@ -296,18 +310,50 @@ export class JupiterBtcStrategy {
         }
       }
 
-      // (b) Fold the proxy index's low confidence into rule confidence so the
-      //     assembled fair-value confidence stays genuinely low. A proxy is
-      //     never settlement-grade — we must not emit a confident verdict on it.
-      const idxConf = isFiniteNumber(settlementIndex.confidence)
+      // (b) Two-axis confidence. Axis 1 = inter-source AGREEMENT (the index's own
+      //     confidence, set by the adapter from measured dispersion). Axis 2 =
+      //     NEAR-STRIKE BAND: how close the index sits to the target, in PRICE/bps
+      //     space (NOT z — dividing by a vol that shrinks near expiry would falsely
+      //     report "far from strike"). Inside the band the UNMEASURED residual-to-
+      //     Chainlink can flip the outcome, so confidence is killed there regardless
+      //     of how well the sources agree. The band is DYNAMIC (widens with current
+      //     dispersion) + a tail floor + a bias cushion (the systematic offset that
+      //     dispersion can't see), and biased WIDE (skipping a marginal trade is
+      //     cheap; taking a close-call the proxy mismeasures fabricates false edge).
+      let idxConf = isFiniteNumber(settlementIndex.confidence)
         ? (settlementIndex.confidence as number)
         : 0.3;
+      const rp = (settlementIndex.rawPayload ?? {}) as { dispersionBps?: number };
+      const dispBps = isFiniteNumber(rp.dispersionBps) ? (rp.dispersionBps as number) : 99;
+      const idxPx = settlementIndex.indexPrice as number;
+      const tgt = settlement.targetPrice;
+      let nearStrike = false;
+      let distanceBps: number | null = null;
+      let bandBps: number | null = null;
+      if (isFiniteNumber(idxPx) && idxPx > 0 && isFiniteNumber(tgt)) {
+        distanceBps = (Math.abs(idxPx - (tgt as number)) / idxPx) * 10000;
+        // band = max(k·current_dispersion, p99 tail floor) + bias cushion
+        bandBps =
+          Math.max(JupiterBtcStrategy.NEARSTRIKE_K * dispBps, JupiterBtcStrategy.NEARSTRIKE_P99_FLOOR_BPS) +
+          JupiterBtcStrategy.NEARSTRIKE_BIAS_BPS;
+        if (distanceBps < bandBps) {
+          nearStrike = true;
+          idxConf = 0; // inside the residual band → abstain, do not trust the outcome
+        }
+      }
       settlement = {
         ...settlement,
-        ruleConfidence: Math.max(
-          0,
-          Math.min(1, (settlement.ruleConfidence ?? 0) * idxConf),
-        ),
+        ruleConfidence: Math.max(0, Math.min(1, (settlement.ruleConfidence ?? 0) * idxConf)),
+        rawRules: {
+          ...(settlement.rawRules as Record<string, unknown>),
+          proxyConfidence: {
+            agreementConf: settlementIndex.confidence,
+            dispersionBps: dispBps,
+            distanceToStrikeBps: distanceBps,
+            nearStrikeBandBps: bandBps,
+            nearStrikeAbstain: nearStrike,
+          },
+        },
       };
     }
 
